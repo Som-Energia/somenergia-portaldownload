@@ -83,6 +83,7 @@ class SwitchingPortalEndesa:
 
 	def __init__(self, user, password) :
 		self.targetDirectory = os.getcwd()
+		self.pendingDownloads = []
 
 		profile = webdriver.FirefoxProfile()
 		profile.set_preference('browser.download.folderList', 2)
@@ -108,13 +109,11 @@ class SwitchingPortalEndesa:
 
 		self.driver.execute_script("document.getElementById('fec_desde').setAttribute('value','{:%d/%m/%Y}')".format(inici))
 		self.driver.execute_script("document.getElementById('fec_hasta').setAttribute('value','{:%d/%m/%Y}')".format(final))
-#		self.driver.execute_script("document.getElementById('fec_descarga_desde').setAttribute('value','{:%d/%m/%Y}')".format(inici))
-#		self.driver.execute_script("document.getElementById('fec_descarga_hasta').setAttribute('value','{:%d/%m/%Y}')".format(final))
-#		self.driver.execute_script("document.getElementsByName('cod_emisora')[0].value='0024'") # TODO: Esta es solo una
 		self.driver.execute_script("document.getElementsByName('cod_destino')[0].value='0762'")
 		processlist = self.driver.find_element_by_name("cod_proceso")
 
-		processOption = [ option
+		processOption = [
+			option
 			for option in processlist.find_elements_by_tag_name("option")
 			if option.get_attribute('value') == proces ]
 
@@ -129,42 +128,51 @@ class SwitchingPortalEndesa:
 		radio = self.driver.find_element_by_id('todos')
 		radio.click()
 
-	
 		self.driver.execute_script("Enviar()")
+
 		self.driver.execute_script("RecibirTodos()")
 
 		textoAceptacion = self.driver.find_element_by_class_name('ListaCabecera').text
 		codigoSolicitud = [int(s) for s in textoAceptacion.split() if s.isdigit()] [0]
 
-		while True:
+		newName = '{}_{}_{}_{}_{}.zip'.format(
+			proces,pas,inici,final,self.name)
 
+		self.pendingDownloads.append((codigoSolicitud, newName))
+
+	def downloadPending(self):
+		while self.pendingDownloads:
 			self.driver.get('https://www.canalweb.endesa.es/canalweb/consulta/mensajes/ConsultaDescargas.jsp')
-
 			self.driver.execute_script("document.getElementById('fec_desde').setAttribute('value','{:%d/%m/%Y}')".format(datetime.date.today()))
 			self.driver.execute_script("document.getElementById('fec_hasta').setAttribute('value','{:%d/%m/%Y}')".format(datetime.date.today()))
 			self.driver.execute_script("Validar()")
-			disponibilitats = self.driver.find_elements_by_xpath("//table//table//table//td[contains(., '{}')]/../td[6]".format(codigoSolicitud))
-			if not disponibilitats : 
 
-			if disponibilitat.text.strip() not in ('NO','DISPONIBLE'):
-				raise Exception("Disponibilitat desconeguda: {}".format(disponibilitat.text))
+			for solicitud, newName in self.pendingDownloads:
 
-			if disponibilitat.text.strip() == 'DISPONIBLE':
-				break
+				disponibilitats = self.driver.find_elements_by_xpath("//table//table//table//td[contains(., '{}')]/../td[6]".format(solicitud))
+				if not disponibilitats : 
+					print "Compte quelcom ha passat amb el formulari"
+					continue
+				disponibilitat = disponibilitats[0]
 
-			print "Encara no tenim la peticio {}, esperant mig minutet...".format(codigoSolicitud)
+				if disponibilitat.text.strip() not in ('NO','DISPONIBLE'):
+					raise Exception("Disponibilitat desconeguda: {}".format(disponibilitat.text))
+
+				if disponibilitat.text.strip() != 'DISPONIBLE':
+					continue
+					
+				link = disponibilitat.find_element_by_tag_name("a").get_attribute('href')
+
+				previousFiles = os.listdir(self.targetDirectory)
+				self.driver.get(link)
+				downloaded = [f for f in os.listdir(self.targetDirectory) if f not in previousFiles ][0]
+				os.rename(downloaded, newName)
+				self.pendingDownloads.remove((solicitud, newName))
+
+				print downloaded, '->', newName
+
+			print "Encara no tenim la peticio {}, esperant mig minutet...".format(solicitud)
 			time.sleep(30)
-				
-		link = disponibilitat.find_element_by_tag_name("a").get_attribute('href')
-
-		previousFiles = os.listdir(self.targetDirectory)
-		self.driver.get(link)
-		downloaded = [f for f in os.listdir(self.targetDirectory) if f not in previousFiles ][0]
-		newName = '{}_{}_{}_{}_{}.zip'.format(
-			proces,pas,inici,final,self.name)
-		os.rename(downloaded, newName)
-
-		print downloaded, '->', newName
 
 
 	def close(self):
@@ -205,6 +213,8 @@ for distri in distris:
 				proces=proces,
 				pas=pas,
 				)
+	if hasattr(portal, 'downloadPending') :
+		portal.downloadPending()
 	portal.close()
 
 
