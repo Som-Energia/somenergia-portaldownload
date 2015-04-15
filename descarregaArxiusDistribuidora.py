@@ -6,8 +6,7 @@ from selenium.webdriver.common.keys import Keys
 import os
 import time
 
-class SwitchingPortalIberdrola:
-	name = 'Iberdrola'
+class SwitchingPortal(object):
 	def __init__(self, user, password) :
 		self.targetDirectory = os.getcwd()
 
@@ -18,6 +17,14 @@ class SwitchingPortalIberdrola:
 		profile.set_preference('browser.helperApps.neverAsk.saveToDisk', 'application/zip')
 
 		self.driver = webdriver.Firefox(profile)
+
+
+
+class SwitchingPortalIberdrola(SwitchingPortal):
+	name = 'Iberdrola'
+	def __init__(self, user, password) :
+		super(SwitchingPortalIberdrola, self).__init__(user, password)
+
 		self.driver.get("https://www.iberdrola.es/pwmultid/ServletAutentificacion?pwmultid=iberdrolad")
 
 		userbox = self.driver.find_element_by_name("usuario")
@@ -68,6 +75,7 @@ class SwitchingPortalIberdrola:
 		self.driver.switch_to_window(currentWindow)
 		downloaded = [f for f in os.listdir(self.targetDirectory) if f not in previousFiles ][0]
 
+
 		newName = '{}_{}_{}_{}_{}.zip'.format(
 			proces,pas,inici,final,self.name)
 		os.rename(downloaded, newName)
@@ -82,16 +90,9 @@ class SwitchingPortalEndesa:
 	name = 'Endesa'
 
 	def __init__(self, user, password) :
-		self.targetDirectory = os.getcwd()
+		super(SwitchingPortalEndesa, self).__init__(user, password)
 		self.pendingDownloads = []
 
-		profile = webdriver.FirefoxProfile()
-		profile.set_preference('browser.download.folderList', 2)
-		profile.set_preference('browser.download.manager.showWhenStarting', False)
-		profile.set_preference('browser.download.dir', self.targetDirectory)
-		profile.set_preference('browser.helperApps.neverAsk.saveToDisk', 'application/zip')
-
-		self.driver = webdriver.Firefox(profile)
 		self.driver.get("https://www.canalweb.endesa.es/canalweb/servlet/ServletAutentificacion")
 
 		userbox = self.driver.find_element_by_name("usuario")
@@ -178,6 +179,77 @@ class SwitchingPortalEndesa:
 	def close(self):
 		self.driver.close()
 
+class SwitchingPortalFenosa(SwitchingPortal):
+	name='Fenosa'
+
+	def __init__(self, user, password) :
+		super(SwitchingPortalFenosa,self).__init__(user, password)
+
+		self.driver.get("https://sctd.gasnaturalfenosa.com/sctd/loginPage.do")
+
+		userbox = self.driver.find_element_by_name("cdaLogin")
+		userbox.send_keys(user)
+		passbox = self.driver.find_element_by_name("cdaPassword")
+		passbox.send_keys(password)
+
+		loginbt = self.driver.find_element_by_id("bton")
+		loginbt.click()
+
+	def downloadXml(self, inici, final, proces, pas=None):
+
+		self.driver.switch_to_default_content()
+		self.driver.execute_script(
+			"document.getElementById('area_cliente')"
+			".setAttribute('src',"
+				"'https://sctd.gasnaturalfenosa.com/sctd/elco/cons/descargaMensajesFiltrosElec.do')")
+
+		self.driver.switch_to.frame(self.driver.find_element_by_id("area_cliente"))
+
+		originalWindows = [handle for handle in self.driver.window_handles ]
+
+		self.driver.execute_script("document.getElementById('fecMensajeDesde').setAttribute('value','{:%Y-%m-%d}')".format(inici))
+		self.driver.execute_script("document.getElementById('fecMensajeHasta').setAttribute('value','{:%Y-%m-%d}')".format(final))
+		self.driver.find_element_by_id("cdaEmisor_0022").click()
+		self.driver.find_element_by_id("cdaEmisor_0390").click()
+
+
+		processlist = self.driver.find_element_by_name("cdaProceso")
+
+		processOption = [ option
+			for option in processlist.find_elements_by_tag_name("option")
+			if option.get_attribute('value') == proces ]
+
+		if not processOption:
+			raise Exception('Proces {} no trobat al formulari'.format(proces, ' ', join([
+				option.get_attribute('value')
+				for option in processlist.find_elements_by_tag_name('option') ])))
+		processOption[0].click()
+
+		if pas is not None:
+			time.sleep(2)
+			self.driver.find_element_by_id("pasos_{}".format(pas)).click()
+
+		self.driver.execute_script("consulta()")
+
+		self.driver.execute_script("seleccionar('seleccionarForm','gridDescargaMensajes','all','select_checkbox');")
+
+		previousFiles = os.listdir(self.targetDirectory)
+		self.driver.execute_script("descargarGlobal();");
+
+		downloaded=[]
+		while not downloaded:
+			downloaded = [f for f in os.listdir(self.targetDirectory) if f not in previousFiles ]
+		downloaded = downloaded[0]
+
+
+		newName = '{}_{}_{}_{}_{}.zip'.format(
+			proces,pas,inici,final,self.name)
+		os.rename(downloaded, newName)
+
+		print downloaded, '->', newName
+
+
+
 import datetime
 import config
 
@@ -185,12 +257,16 @@ inici = datetime.date(2015,01,01)
 final = datetime.date(2015,01,12)
 processos = 'C1,C2'.split(',')
 passos = '02,05'.split(',')
-distris = 'Endesa,Iberdrola'.split(',')
-distris = ['Endesa']
+distris = [
+	'Fenosa',
+#	'Endesa',
+	'Iberdrola',
+]
 
 configs=dict(
 	Iberdrola = config.portal_iberdrola,
 	Endesa = config.portal_endesa,
+	Fenosa = config.portal_fenosa,
 	)
 
 portals = dict(
@@ -198,6 +274,7 @@ portals = dict(
 	for Portal in [
 		SwitchingPortalIberdrola,
 		SwitchingPortalEndesa,
+		SwitchingPortalFenosa,
 		])
 
 for distri in distris:
